@@ -5,7 +5,7 @@
 __pycache__
 iggybase_env/
 .idea/
-config.py
+.env
 files/
 updategit
 
