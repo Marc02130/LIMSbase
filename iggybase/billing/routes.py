@@ -1,6 +1,6 @@
 import json
 from flask import render_template, request, flash
-from flask.ext.security import login_required
+from flask_security import login_required
 from flask_weasyprint import render_pdf, HTML
 from iggybase.web_files.decorators import templated
 from iggybase import utilities as util

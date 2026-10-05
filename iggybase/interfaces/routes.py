@@ -1,5 +1,5 @@
 from flask import request
-from flask.ext.security import login_required
+from flask_security import login_required
 from . import interfaces
 from iggybase.interfaces.connections import spinal_db_session
 from . import models

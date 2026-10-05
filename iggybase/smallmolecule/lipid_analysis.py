@@ -3,7 +3,7 @@ import os
 import numpy
 import zipfile
 from flask import request
-from flask.ext import excel
+import flask_excel as excel
 from config import Config
 from collections import OrderedDict
 

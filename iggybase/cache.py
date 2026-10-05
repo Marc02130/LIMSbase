@@ -1,4 +1,4 @@
-from werkzeug.contrib.cache import SimpleCache
+from cachelib import SimpleCache
 from functools import wraps
 import logging
 

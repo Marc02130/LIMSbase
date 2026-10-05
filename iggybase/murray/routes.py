@@ -1,5 +1,5 @@
 from flask import abort
-from flask.ext.security import login_required
+from flask_security import login_required
 from iggybase.web_files.decorators import templated
 import json
 import iggybase.core.table_query_collection as tqc

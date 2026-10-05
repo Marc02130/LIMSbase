@@ -1,4 +1,4 @@
-from flask_wtf import Form
+from flask_wtf import FlaskForm
 from wtforms import (IntegerField, FloatField, StringField,
     TextAreaField, RadioField, BooleanField)
 from wtforms.validators import Optional
@@ -15,7 +15,7 @@ class ElseOptional(Optional):
         if getattr(form, self.attr).data != self.val:
             super(ElseOptional, self).__call__(form, field)
 
-class LipidAnalysisForm(Form):
+class LipidAnalysisForm(FlaskForm):
     cols_to_remove = ['ARatio', 'HRatio', 'ADiff', 'HDiff', 'GroupHeight', 'HeightRSD',
     'Height', 'NormArea', 'NormHeight', 'Hwhm(L)', 'Hwhm(R)', 'AreaScore', 'DataId', 'Scan',
     'It.', 'z', 'Delta(Da)', 'mScore', 'Occupy']

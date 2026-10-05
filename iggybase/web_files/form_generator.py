@@ -1,6 +1,6 @@
 from types import new_class
 from flask import request, g
-from flask.ext.wtf import Form
+from flask_wtf import FlaskForm
 from wtforms import HiddenField
 import datetime
 from wtforms.validators import DataRequired, Length, email, Optional
@@ -190,7 +190,7 @@ class FormGenerator(PageTemplate):
         self.classattr['max_depth'] = HiddenField('max_depth', default=depth)
 
 
-        form_class = new_class(self.form_type, (Form,), {}, lambda ns: ns.update(self.classattr))
+        form_class = new_class(self.form_type, (FlaskForm,), {}, lambda ns: ns.update(self.classattr))
 
         self.form_class = form_class(None)
         

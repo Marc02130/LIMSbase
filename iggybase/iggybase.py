@@ -5,14 +5,15 @@ from flask import Flask, g, send_from_directory, abort, url_for, request
 from flask import redirect, flash
 from wtforms import StringField, SelectField, ValidationError, BooleanField
 from wtforms.validators import DataRequired, Email, Regexp
-from wtforms.ext.sqlalchemy.orm import model_form, QuerySelectField
-from flask_wtf import Form
+from wtforms_sqlalchemy.orm import model_form
+from wtforms_sqlalchemy.fields import QuerySelectField
+from flask_wtf import FlaskForm
 from config import Config
 from flask import render_template
-from flask.ext.security import Security, SQLAlchemyUserDatastore, UserMixin, \
+from flask_security import Security, SQLAlchemyUserDatastore, UserMixin, \
 RoleMixin, login_required, current_user, LoginForm, RegisterForm, \
 logout_user
-from flask.ext.security.registerable import register_user
+from flask_security.registerable import register_user
 from iggybase.extensions import mail, lm, bootstrap
 from iggybase.admin import models
 from iggybase.cache import Cache
@@ -376,7 +377,7 @@ class ExtendedRegisterForm(RegisterForm):
 
 # dynamic form using modal_form, base for NewGroupForm
 group_form = model_form(models.Organization, db_session=db_session,
-        base_class=Form,
+        base_class=FlaskForm,
         only=['name', 'description', 'organization_type', 'institution',
             'department'],
         field_args={

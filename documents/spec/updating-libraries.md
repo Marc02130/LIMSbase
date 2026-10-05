@@ -20,6 +20,9 @@ Replace `requirements.txt` with direct dependencies only. Pin each package, at i
 | Spreadsheets | Flask-Excel and the pyexcel stack it currently requires | `flask_excel` |
 | Images and PDF | Pillow, WeasyPrint, Flask-WeasyPrint | `PIL`, `weasyprint`, `flask_weasyprint` |
 | Process | gunicorn | Used by the Docker plan |
+| Cache | cachelib (`werkzeug.contrib.cache` is gone) | `cachelib` |
+| App imports | numpy, python-dateutil, email-validator | |
+| Password hashing library | libpass, pulled in by Flask-Security-Too 5.9 | |
 
 Remove from the pin file: `mod-wsgi`, `virtualenv`, `virtualenvwrapper`, `ipython`, `BareNecessities`, `pbr`, `stevedore`, `mysql-connector-python-rf`, and other packages that were only present because `pip freeze` captured a workstation. Do not revive `setup.py`.
 
@@ -76,6 +79,8 @@ Do not commit a filled `.env`. The Docker plan adds `.env.example`.
 Stay on the custom engine. Do not add Flask-SQLAlchemy as the application database.
 
 `DBFactory` already exposes `.session`. Confirm Flask-Security-Too's `SQLAlchemyUserDatastore(db, User, Role)` uses that session. Keep `Base.query = db_session.query_property()`. Do not rewrite queries to `select()`.
+
+The first database is empty, and the first account is a new admin user. This plan does not preserve legacy Werkzeug or passlib password hashes.
 
 On `User` in `iggybase/admin/models.py`:
 

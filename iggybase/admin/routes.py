@@ -1,4 +1,4 @@
-from flask.ext.security import login_required
+from flask_security import login_required
 from . import admin
 
 MODULE_NAME = 'admin'

@@ -5,8 +5,8 @@ import time
 import urllib
 from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
-from flask.ext import excel
-from flask.ext.security import login_required
+import flask_excel as excel
+from flask_security import login_required
 from iggybase import g_helper
 from iggybase import utilities as util
 from iggybase.web_files import forms

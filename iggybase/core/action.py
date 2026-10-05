@@ -1,5 +1,5 @@
 from iggybase import g_helper
-from flask.ext.mail import Message
+from flask_mail import Message
 from iggybase.extensions import mail
 from importlib import import_module
 from iggybase.core.constants import ActionType

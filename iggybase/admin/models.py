@@ -2,7 +2,7 @@ from iggybase.database import Base
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship, relation, backref
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask.ext.security import UserMixin, RoleMixin
+from flask_security import UserMixin, RoleMixin
 from iggybase.admin.constants import ROLE
 from iggybase.extensions import lm
 import random

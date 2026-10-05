@@ -1,4 +1,4 @@
-from flask.ext.security import login_required
+from flask_security import login_required
 from flask import request
 from iggybase.web_files.decorators import templated
 from iggybase import core
