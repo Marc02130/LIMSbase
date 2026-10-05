@@ -65,10 +65,17 @@ db_inspector = inspect(engine)
 db_sessionmaker = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 db_session = scoped_session(db_sessionmaker)
 Base = declarative_base(cls=IggybaseBase)
-Base.query = db_session.query_property()
-db = DBFactory(Base.query, db_session)
+# Keep the descriptor itself. Reading Base.query here would ask SQLAlchemy
+# to query the unmapped declarative base.
+_query_property = db_session.query_property()
+Base.query = _query_property
+db = DBFactory(_query_property, db_session)
 
 
 def init_db():
+    # Admin models are already registered on Base. Create them before the
+    # dynamic factory queries table_object, then create any tables that
+    # factory added.
+    Base.metadata.create_all(bind=engine)
     getattr(__import__('iggybase', fromlist=['models']), 'models')
     Base.metadata.create_all(bind=engine)

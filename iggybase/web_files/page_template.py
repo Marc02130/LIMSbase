@@ -1,4 +1,5 @@
-from flask import render_template, abort, request, g, Markup
+from flask import render_template, abort, request, g
+from markupsafe import Markup
 from iggybase import g_helper
 from iggybase.admin import constants as admin_consts
 from collections import OrderedDict as OrderedDict

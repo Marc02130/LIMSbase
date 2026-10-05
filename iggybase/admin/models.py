@@ -1,11 +1,12 @@
 from iggybase.database import Base
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship, relation, backref
+from sqlalchemy.orm import relationship, backref
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_security import UserMixin, RoleMixin
 from iggybase.admin.constants import ROLE
 from iggybase.extensions import lm
 import random
+import uuid
 
 
 class Institution(Base):
@@ -58,7 +59,7 @@ class Organization(Base):
     institution_id = Column(Integer, ForeignKey('institution.id'))
     public = Column(Boolean)
 
-    parent = relation('Organization', remote_side="Organization.id", foreign_keys=[parent_id])
+    parent = relationship('Organization', remote_side="Organization.id", foreign_keys=[parent_id])
     organization_department = relationship("Department", foreign_keys=[department_id])
     organization_organization_type = relationship("OrganizationType", foreign_keys=[organization_type_id])
     organization_address = relationship("Address", foreign_keys=[address_id])
@@ -275,7 +276,7 @@ class PageForm(Base):
     page_template = Column(String(100))
     parent_id = Column(Integer, ForeignKey('page_form.id'))
 
-    parent = relation('PageForm', remote_side="PageForm.id", foreign_keys=[parent_id])
+    parent = relationship('PageForm', remote_side="PageForm.id", foreign_keys=[parent_id])
 
     def __repr__(self):
         return "<%s(name=%s, description=%s, id=%d, organization_id=%d)>" % \
@@ -589,7 +590,7 @@ class WorkItem(Base):
 
     work_item_work_item_group = relationship("WorkItemGroup", foreign_keys=[work_item_group_id])
     work_item_table_object = relationship("TableObject", foreign_keys=[table_object_id])
-    work_item_work_item = relation('WorkItem', remote_side="WorkItem.id", foreign_keys=[parent_id])
+    work_item_work_item = relationship('WorkItem', remote_side="WorkItem.id", foreign_keys=[parent_id])
 
     def __repr__(self):
         return "<%s(name=%s, description=%s, id=%d, organization_id=%d)>" % \
@@ -635,7 +636,9 @@ class UserRole(Base):
 
 class User(Base, UserMixin):
     table_type = 'admin'
-    password = Column(String(120))
+    password = Column(String(255))
+    fs_uniquifier = Column(String(64), unique=True, nullable=False,
+                           default=lambda: uuid.uuid4().hex)
     first_name = Column(String(50))
     last_name = Column(String(50))
     email = Column(String(120), unique=True)
@@ -650,9 +653,6 @@ class User(Base, UserMixin):
     roles = relationship('Role', secondary='user_role', primaryjoin='user_role.c.user_id == User.id',
                          secondaryjoin='user_role.c.role_id == Role.id', order_by='Role.name',
                          backref=backref('users', lazy='dynamic'))
-
-    def get_id(self):
-        return str(self.id)
 
     def set_password(self, password):
         self.password = generate_password_hash(password)
@@ -669,7 +669,7 @@ class User(Base, UserMixin):
 
     @property
     def is_active(self):
-        return self.active and self.verified
+        return bool(self.active and self.verified)
 
     def __repr__(self):
         return '<User %r>' % (self.name)
