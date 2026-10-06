@@ -1,32 +1,62 @@
-install python 3.4.1
+# Iggybase
 
-sudo yum groupinstall "Development tools"
-sudo yum install zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel
-sudo vim /etc/ld.so.conf
-add '/usr/local/lib'
-wget https://www.python.org/ftp/python/3.4.1/Python-3.4.1.tar.xz
-tar xf Python-3.4.1.tar.xz
-cd Python-3.4.1
-sudo ./configure --prefix=/usr/local --enable-shared LDFLAGS="-Wl,-rpath /usr/local/lib"
-sudo make 
-sudo make altinstall
+Start MySQL and the web app with Docker Compose. The server is gunicorn. Apache `mod_wsgi` is not used. The site listens on this machine only, at http://127.0.0.1:8000.
 
-Install 3.4 version of mod_wsgi
+## Start
 
-wget https://github.com/GrahamDumpleton/mod_wsgi/archive/4.4.12.tar.gz
-tar xf 4.4.12.tar.gz
-./configure --with-python=/n/informatics/iggybase/iggybase_env/bin/python3.4
-sudo make
-sudo make install
-sudo ln -s /usr/local/lib/libpython3.4m.so /usr/lib64/libpython3.4m.so
-sudo ln -s /usr/local/lib/libpython3.4m.so.1.0 /usr/lib64/libpython3.4m.so.1.0
+Copy the example environment and replace every `change-me` value. `.env` is not committed.
 
-create virtual environment
+```text
+cp .env.example .env
+```
 
-python3.4 -m venv iggybase_env
+`MYSQL_DATABASE`, `MYSQL_USER`, and `MYSQL_PASSWORD` must match `DATA_DB_NAME`, `DB_USER`, and `DB_PASSWORD`. Inside Compose, `DB_HOST` is `mysql`. Leave `SQLALCHEMY_DATABASE_URI` unset so the app builds `mysql+pymysql://…@mysql:3306/`.
 
-install flask and packages
---------------------------
-pip install -r requirements.txt
+```text
+docker compose up --build -d
+```
 
+`web` waits until MySQL answers `mysqladmin ping`. MySQL has no published port. Uploads are stored on the `uploads` volume.
 
+When `docker compose ps` shows `web` as healthy, the process can reach the database:
+
+```text
+curl http://127.0.0.1:8000/healthz
+```
+
+A healthy process returns `{"status":"ok"}`. If the database is down, the same URL returns 503.
+
+The first start creates empty admin tables. `initial_admin.sql` is not loaded. Host port 8000 must be free. The published address in `docker-compose.yml` is `127.0.0.1:8000:8000`.
+
+Stop the containers with `docker compose down`. The `mysql-data` and `uploads` volumes keep the database and files. `docker compose down -v` deletes those volumes.
+
+## Log in
+
+Open http://127.0.0.1:8000/login. The form asks for a username or email, a password, and Remember Me.
+
+No account is created for you. `/register` cannot create the first one: it requires a public facility and a public group, and it stores the new account as unverified. An unverified account cannot sign in. Password reset is not enabled.
+
+Create the first account from the web container. Replace the email and password below. The password is stored with the application's argon2 hash. Both `active` and `verified` must be true, or the login form will reject the account.
+
+```text
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='choose-a-password' \
+docker compose exec -e ADMIN_EMAIL -e ADMIN_PASSWORD web python -c '
+import os, uuid
+from iggybase import create_app
+from iggybase.database import db_session
+from iggybase.admin.models import User
+from flask_security.utils import hash_password
+app = create_app()
+with app.app_context():
+    email = os.environ["ADMIN_EMAIL"]
+    user = User(name=email, email=email, password=hash_password(os.environ["ADMIN_PASSWORD"]),
+                fs_uniquifier=uuid.uuid4().hex, active=True, verified=True)
+    db_session.add(user)
+    db_session.commit()
+    print("created", email)
+'
+```
+
+The command prints mapper warnings, then a line `created you@example.com`. Sign in at http://127.0.0.1:8000/login with that email and password. A correct password redirects to `/`.
+
+That next page does not render on an empty database. The account has no facility role, and the database has no facility or screen metadata. Those rows are not part of startup. The login form itself is the page this stack is meant to serve until that metadata is loaded.
