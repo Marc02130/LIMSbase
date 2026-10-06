@@ -1,0 +1,13 @@
+.git
+.env
+iggybase_env
+.venv
+venv
+__pycache__
+*.pyc
+*.log
+.DS_Store
+.idea
+files
+apache_conf
+initial_admin.sql
