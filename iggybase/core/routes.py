@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
 from flask_wtf.csrf import validate_csrf
+from markupsafe import Markup
 from werkzeug.exceptions import NotFound
 from werkzeug.security import safe_join
 from wtforms import ValidationError
@@ -21,6 +22,7 @@ from iggybase.web_files.form_parser import FormParser
 from iggybase.web_files.modal_form import ModalForm
 from iggybase.web_files.page_template import PageTemplate
 from . import core
+from .table_query import html_anchor
 from .table_query_collection import TableQueryCollection
 from .work_item_group import WorkItemGroup
 from iggybase.core.constants import Timing
@@ -101,7 +103,7 @@ def summary_download(facility_name, table_name):
     allow_links = False
     tqc = TableQueryCollection(table_name)
     tqc.get_results(allow_links)
-    tqc.format_results(add_row_id)
+    tqc.format_results(add_row_id, allow_links)
     tq = tqc.get_first()
     csv = excel.make_response_from_array(tq.results, 'csv')
     return csv
@@ -553,7 +555,10 @@ def build_summary_ajax(table_name, criteria = {}):
 
 def saved_data(facility_name, module_name, table_name, row_names,
         page_context, fg):
-    msg = 'Saved: '
+    # page_msg is marked safe in the template, so the name and the URL are
+    # escaped before they are wrapped in the anchor. saved_rows keeps the
+    # URL-quoted name.
+    msg = Markup('Saved:')
     error = False
     saved_rows = {}
     for row_info in row_names.values():
@@ -564,8 +569,9 @@ def saved_data(facility_name, module_name, table_name, row_names,
         else:
             table = urllib.parse.quote(row_info['table'])
             name = urllib.parse.quote(row_info['name'])
-            msg += (' <a href=' + request.url_root + facility_name + '/' + module_name + '/detail/' +
-                    table + '/' + name + '>' +  row_info['name'] + '</a>,')
+            href = (request.url_root + facility_name + '/' + module_name +
+                    '/detail/' + table + '/' + name)
+            msg += Markup(' ') + html_anchor(href, row_info['name']) + Markup(',')
 
             # TODO: allow this to support data saving by other than name
             if not table in saved_rows:

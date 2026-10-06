@@ -1,9 +1,23 @@
 from flask import request, g
 import time
 from collections import OrderedDict
+from markupsafe import Markup, escape
 from iggybase import utilities as util
 from iggybase import g_helper
 from .field_collection import FieldCollection
+
+
+def html_anchor(href, text, new_tab=False):
+    """Anchor whose URL and visible text are escaped first.
+
+    Summary cells and the save message are later marked safe. Escaping has to
+    happen before that, or a stored value such as <script> is a live element.
+    """
+    if new_tab:
+        pattern = '<a href="{href}" target="_blank">{text}</a>'
+    else:
+        pattern = '<a href="{href}">{text}</a>'
+    return Markup(pattern).format(href=escape(href), text=escape(text))
 
 # Retreives and formats data based on table_query
 class TableQuery:
@@ -50,19 +64,21 @@ class TableQuery:
                 field = self.fc.fields[key]
                 criteria_key = (field.TableObject.name, field.Field.display_name)
                 criteria[criteria_key] = val
-        # add criteria from db
-        res = self.rac.table_query_criteria(
-            self.id
-        )
-        for row in res:
-            criteria_key = (row.TableObject.name, row.Field.display_name)
-            if row.TableQueryCriteria.comparator != None:
-                criteria[criteria_key] = {
-                        'compare': row.TableQueryCriteria.comparator,
-                        'value': row.TableQueryCriteria.value
-                }
-            else:
-                criteria[criteria_key] = row.TableQueryCriteria.value
+        # A summary opened by table name has no table_query id and no saved
+        # criteria. Skip that query; its joins are unused on this path.
+        if self.id:
+            res = self.rac.table_query_criteria(
+                self.id
+            )
+            for row in res:
+                criteria_key = (row.TableObject.name, row.Field.display_name)
+                if row.TableQueryCriteria.comparator != None:
+                    criteria[criteria_key] = {
+                            'compare': row.TableQueryCriteria.comparator,
+                            'value': row.TableQueryCriteria.value
+                    }
+                else:
+                    criteria[criteria_key] = row.TableQueryCriteria.value
         criteria.update(orig_criteria)
         return criteria
 
@@ -71,14 +87,18 @@ class TableQuery:
         only loops through rows if
         - calculates calculated fields
         - file fields which need to be made into links
+        - linked fields, which are escaped here rather than in the SQL select
         TODO: there might be a bug to fix here since invisible fields that might
         be in calculations will not be in the select from get_table_query_data
         """
         if self.results:
-            keys = self.results[0].keys()
+            # Row.keys() was removed in SQLAlchemy 2.1. _fields is the
+            # ordered list of column labels.
+            keys = list(self.results[0]._fields)
         # keep track of special fields
         calc_fields = []
         file_fields = []
+        link_fields = []
         invisible_fields = []
         url_root = request.url_root
         for field in self.fc.fields.values():
@@ -88,15 +108,14 @@ class TableQuery:
                 invisible_fields.append(field.name)
             if field.type == 'file':
                 file_fields.append(field.name)
-        # create dictionary for each row
-        if calc_fields or file_fields:
+            elif field.link_visible():
+                link_fields.append(field.name)
+        # A download sets allow_links false. Those cells stay raw: no anchor
+        # and no HTML escaping, which would corrupt the CSV.
+        if calc_fields or file_fields or link_fields:
             row_list = []
-            for i, row in enumerate(self.results):
+            for row in self.results:
                 row_formatted = []
-                if row:
-                    dt_row_id = row[len(row)-1]
-                else:
-                    dt_row_id = None
                 for i, col in enumerate(row):
                     name = keys[i]
                     if name in invisible_fields:
@@ -104,7 +123,7 @@ class TableQuery:
                     elif name in calc_fields:
                             col = self.fc.fields[name].calculate(col, row,
                                     keys)
-                    elif name in file_fields and col != None:
+                    elif allow_links and name in file_fields and col != None:
                         filelist = col.split('|')
                         file_links = []
                         row_name = None
@@ -119,8 +138,11 @@ class TableQuery:
                                     row_name = file_split[0]
                                     file = ('/').join(file_split[1:])
                             link = self.fc.fields[name].get_file_link(url_root, row_name, file)
-                            file_links.append('<a href="' + link + '" target="_blank">' + file + '</a>')
+                            file_links.append(html_anchor(link, file, new_tab=True))
                         col = '|'.join(file_links)
+                    elif allow_links and name in link_fields and col != None:
+                        prefix = self.fc.fields[name].get_link('detail')
+                        col = html_anchor(prefix + str(col), col)
                     row_formatted.append(col)
                 if row_formatted:
                     row_list.append(row_formatted)

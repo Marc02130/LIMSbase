@@ -255,6 +255,8 @@ class OrganizationAccessControl:
         return results
 
     def get_table_query_data(self, fc, criteria={}, allow_links = True, active = 1):
+        # allow_links is applied in TableQuery.format_results. Building the
+        # anchor here would put the raw value in SQL, where it cannot be escaped.
         start = time.time()
         # TODO: consider factoring out part of this or something to make this
         # easier to digest
@@ -282,10 +284,6 @@ class OrganizationAccessControl:
             else:
                 table_model = util.get_table(table_name)
                 table_models[table_name] = table_model
-            # set any link details
-            link = None
-            if field.link_visible() and allow_links:
-                link = field.get_link('detail')
             # handle fks
             if field.is_foreign_key:
                 if field.TableObject.name in table_models:
@@ -338,8 +336,6 @@ class OrganizationAccessControl:
             if field.visible:
                 if field.group_by == 1:
                     group_by.append(col)
-                if link:
-                    col = ('<a href="' + link + col + '">' + col + '</a>')
                 if field.group_func:
                     col = func.ifnull((getattr(func, field.group_func)(col.op('SEPARATOR')(', '))), '')
                 columns.append(col.label(field.name))
@@ -399,10 +395,13 @@ class OrganizationAccessControl:
         columns.append(id_col.label('DT_RowId'))
         current = time.time()
         print('before query: ' + str(current - start))
-        stmt = self.session.query(*columns). \
-                join(*joins). \
-                outerjoin(*outer_joins). \
-                filter(*wheres).group_by(*group_by).order_by(*order_by_list)
+        # SQLAlchemy 2 join() requires a target. A one-table summary has none.
+        stmt = self.session.query(*columns)
+        if joins:
+            stmt = stmt.join(*joins)
+        if outer_joins:
+            stmt = stmt.outerjoin(*outer_joins)
+        stmt = stmt.filter(*wheres).group_by(*group_by).order_by(*order_by_list)
 
         # query = stmt.statement.compile(dialect=mysql.dialect())
         # logging.info('query')
