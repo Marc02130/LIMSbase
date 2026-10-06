@@ -24,6 +24,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=iggybase:iggybase . .
+# The directory is created by WORKDIR as root. The process writes iggybase.log here.
+RUN chown iggybase:iggybase /app
 
 USER iggybase
 

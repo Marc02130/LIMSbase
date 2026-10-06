@@ -20,7 +20,8 @@ from iggybase.extensions import mail, lm, bootstrap
 from iggybase.admin import models
 from iggybase.cache import Cache
 from iggybase import utilities as util
-from iggybase.database import db, init_db, db_session, db_inspector
+from sqlalchemy import text
+from iggybase.database import db, init_db, db_session, db_inspector, engine
 
 __all__ = [ 'create_app' ]
 
@@ -254,6 +255,17 @@ def add_base_routes( app, conf, security, user_datastore ):
     def welcome():
         return render_template( 'welcome.html')
 
+    @app.route('/healthz')
+    def healthz():
+        # Not a facility route and not login-protected. Up means MySQL answered.
+        try:
+            with engine.connect() as connection:
+                connection.execute(text('SELECT 1'))
+        except Exception:
+            logging.info('healthz database query failed')
+            return {'status': 'unavailable'}, 503
+        return {'status': 'ok'}, 200
+
     @app.after_request
     def remove_session(resp):
         g.db_session.close()
@@ -297,7 +309,7 @@ def configure_hook( app ):
             g.oac = OrganizationAccessControl()
             path = list(filter(bool, request.path.split('/')))
             # always allow some paths
-            ignore_facility = ['static', 'logout', 'favicon.ico', 'welcome', 'registration_success', 'home']
+            ignore_facility = ['static', 'logout', 'favicon.ico', 'welcome', 'registration_success', 'home', 'healthz']
             if path and path[0] in ignore_facility:
                 return
             if len(path) < 2: # if no facility or no module send home
