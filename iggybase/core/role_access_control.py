@@ -41,8 +41,12 @@ class RoleAccessControl:
             g.role_id = self.role.id
             facility_res = (self.session.query(models.Facility, models.Role,
                                                models.Level)
-                            .join(models.Role, models.UserRole,
-                                  models.Level)
+                            .join(models.Role,
+                                  models.Role.facility_id == models.Facility.id)
+                            .join(models.UserRole,
+                                  models.UserRole.role_id == models.Role.id)
+                            .join(models.Level,
+                                  models.Level.id == models.Role.level_id)
                             .filter(models.UserRole.user_id ==
                                     self.user.id).order_by(models.Facility.id,
                                                            models.Level.order).all())
@@ -206,12 +210,15 @@ class RoleAccessControl:
                 crit_field = getattr(models.Field, key, None)
                 if crit_field:
                     filters.append((crit_field == val))
-        res = (
-            self.session.query(*selects).
-                join(*joins).
-                outerjoin(*outerjoins).
-                filter(*filters).order_by(*orders)
-        ).all()
+        # SQLAlchemy 2 accepts one target per join call. The lists above
+        # used to be unpacked into a single join(). Eager subquery loads
+        # cannot tell which copy of a table to join, so load columns only.
+        query = self.session.query(*selects).enable_eagerloads(False)
+        for item in joins:
+            query = query.join(*(item if isinstance(item, tuple) else (item,)))
+        for item in outerjoins:
+            query = query.outerjoin(*(item if isinstance(item, tuple) else (item,)))
+        res = query.filter(*filters).order_by(*orders).all()
         return res
 
     def table_query_criteria(self, table_query_id):

@@ -160,12 +160,14 @@ def get_row(facility_name, table_name):
 
 
 @core.route('/search', methods=['GET', 'POST'])
+@login_required
 def search(facility_name):
     search_vals = json.loads(request.args.get('search_vals'))
     sf = ModalForm(search_vals)
     return sf.search_form()
 
 @core.route('/search_results', methods=['GET', 'POST'])
+@login_required
 def search_results(facility_name):
     search_vals = json.loads(request.args.get('search_vals'))
     sf = ModalForm(search_vals)

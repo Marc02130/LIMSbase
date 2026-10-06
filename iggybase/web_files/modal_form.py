@@ -1,5 +1,6 @@
 from iggybase import g_helper
 from iggybase.core.field_collection import FieldCollection
+from markupsafe import escape
 import json
 import logging
 
@@ -75,7 +76,8 @@ class ModalForm():
         modal_html = '<table class="table-sm table-striped"><tr>'
 
         for field in fields:
-            modal_html += '<th>' + field.replace("_", " ").title() + '</th>'
+            heading = escape(field.replace("_", " ").title())
+            modal_html += '<th>' + str(heading) + '</th>'
 
 
         modal_html += '</tr>'
