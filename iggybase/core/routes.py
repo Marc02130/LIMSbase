@@ -4,7 +4,6 @@ import os
 import time
 import urllib
 from datetime import UTC, datetime
-from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
 from flask_wtf.csrf import validate_csrf
 from markupsafe import Markup
@@ -22,6 +21,7 @@ from iggybase.web_files.form_parser import FormParser
 from iggybase.web_files.modal_form import ModalForm
 from iggybase.web_files.page_template import PageTemplate
 from . import core
+from .action_allowlist import import_step_routes
 from .table_query import html_anchor
 from .table_query_collection import TableQueryCollection
 from .work_item_group import WorkItemGroup
@@ -462,7 +462,9 @@ def work_item_group(facility_name, workflow_name, step, work_item_group):
         func = globals()[wig.step.Route.url_path]
     else:
         logging.info('route work_item_group is not MODULE_NAME ')
-        module = import_module('iggybase.' + wig.step.Module.name + '.routes')
+        module = import_step_routes(wig.step.Module.name)
+        if module is None:
+            abort(404)
         func = getattr(module, wig.step.Route.url_path)
 
     logging.info('route wig.step.Route.url_path: ' + wig.step.Route.url_path)

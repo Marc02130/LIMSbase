@@ -62,11 +62,21 @@ def get_func(module_name, func_name):
     """
     if not module_name or not func_name:
         return None
+    # Imported here so this module can load before the core package finishes.
+    # Same allowlist as Action.execute_action. A rejected name is not imported.
+    from iggybase.core.action_allowlist import action_allowed
+    if not action_allowed(module_name, func_name):
+        logging.info(
+            'rejected action namespace=%s function=%s',
+            module_name,
+            func_name,
+        )
+        return None
     try:
         module = import_module(module_name)
         func = getattr(module, func_name, None)
         return func
-    except:
+    except Exception:
         logging.info('could not import module_name ' + module_name)
         func = None
 

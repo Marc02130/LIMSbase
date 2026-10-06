@@ -2,6 +2,7 @@ from iggybase import g_helper
 from flask_mail import Message
 from iggybase.extensions import mail
 from importlib import import_module
+from iggybase.core.action_allowlist import action_allowed
 from iggybase.core.constants import ActionType
 from iggybase.core.compare import Compare
 from re import split, findall
@@ -118,11 +119,21 @@ class Action:
         if self.current_action.Action.fixed_parameters:
             kwargs.update(loads(self.current_action.Action.fixed_parameters))
 
-        if self.current_action.Action.namespace and self.current_action.Action.function and not parameter_not_found:
-            action_module = import_module(self.current_action.Action.namespace)
-            action_method = getattr(action_module, self.current_action.Action.function)
-
-            return_values = action_method(*args, **kwargs)
+        namespace = self.current_action.Action.namespace
+        function = self.current_action.Action.function
+        # The names come from the action row. Import only an allowlisted pair.
+        if namespace and function and not parameter_not_found:
+            if action_allowed(namespace, function):
+                action_module = import_module(namespace)
+                action_method = getattr(action_module, function)
+                return_values = action_method(*args, **kwargs)
+            else:
+                logging.info(
+                    'rejected action namespace=%s function=%s',
+                    namespace,
+                    function,
+                )
+                self.results['status'] = False
 
         if self.current_action.ActionEmail and not parameter_not_found:
             self.send_mail(self.current_action.ActionEmail, **kwargs)
