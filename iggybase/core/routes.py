@@ -6,8 +6,10 @@ import urllib
 from datetime import UTC, datetime
 from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
+from flask_wtf.csrf import validate_csrf
 from werkzeug.exceptions import NotFound
 from werkzeug.security import safe_join
+from wtforms import ValidationError
 import flask_excel as excel
 from flask_security import login_required
 from iggybase import g_helper
@@ -316,6 +318,22 @@ def modal_add_submit(facility_name, table_name, page_context):
     return json.dumps({'error': not save_status})
 
 
+def _submitted_csrf_ok():
+    """True when the token on this POST matches the session token.
+
+    The form field is preferred, matching Flask-WTF. The header is the token
+    JavaScript sends. A failure must not reach FormParser.save.
+    """
+    token = request.form.get('csrf_token')
+    if not token:
+        token = request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token')
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return False
+    return True
+
+
 @core.route('/multiple_entry/<table_name>/<row_names>', defaults={'page_context': 'base-context'},
             methods=['GET', 'POST'])
 @core.route('/multiple_entry/<table_name>/<row_names>/<page_context>', methods=['GET', 'POST'])
@@ -327,18 +345,17 @@ def multiple_entry(facility_name, table_name, row_names, page_context):
     fg = FormGenerator('data_entry', 'MultipleForm', table_name, page_context, module_name)
     fg.data_entry_form(row_names)
 
-    if request.method == 'POST' and fg.form_class.validate_csrf_data(request.form.get('csrf_token')):
+    # Check the submitted token before the form is rebuilt. A failure skips
+    # parse and save. A csrf_token error on the rebuilt form is left in place.
+    if request.method == 'POST' and _submitted_csrf_ok():
         fp = FormParser(table_name)
         fp.parse()
 
         fg.data_entry_form(row_names, fp.instances)
         fg.form_class.validate_on_submit()
 
-        # Token has been validated above, this removes the error since the form was regenerated with dynamically
-        # added fields and the new token is no longer valid with the session token
-        del fg.form_class.errors['csrf_token']
-
-        if not fg.form_class.errors:
+        field_errors = [name for name in fg.form_class.errors if name != 'csrf_token']
+        if not field_errors:
             save_status, save_msg = fp.save()
             if save_status is True:
                 return saved_data(facility_name, module_name, table_name, save_msg, page_context)

@@ -1,5 +1,16 @@
 var search_click = false;
 
+// Every state-changing ajax call sends the token from <meta name="csrf-token">.
+$.ajaxSetup({
+    beforeSend: function (xhr, settings) {
+        var method = (settings.type || 'GET').toUpperCase();
+        if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || method === 'TRACE') {
+            return;
+        }
+        xhr.setRequestHeader('X-CSRFToken', $('meta[name="csrf-token"]').attr('content'));
+    }
+});
+
 $( document ).ready( function () {
     $('.select2').select2({
         allowClear: true,
@@ -43,6 +54,7 @@ $( document ).ready( function () {
             }),
             contentType: 'application/json;charset=UTF-8',
             type: 'POST',
+            headers: {'X-CSRFToken': $('meta[name="csrf-token"]').attr('content')},
             success: function(response) {
                 response = JSON.parse(response);
                 if(response.success) {
@@ -77,6 +89,7 @@ $( document ).ready( function () {
             }),
             contentType: 'application/json;charset=UTF-8',
             type: 'POST',
+            headers: {'X-CSRFToken': $('meta[name="csrf-token"]').attr('content')},
             success: function(response) {
                 response = JSON.parse(response);
                 if(response.success) {
@@ -100,6 +113,7 @@ $( document ).ready( function () {
         $.ajax( {
             url: url,
             type: "POST",
+            headers: {'X-CSRFToken': $('meta[name="csrf-token"]').attr('content')},
             success: function ( resp ) {
                 tmpform = resp;
                 tmpform += "<div id='modal_footer' class='modal-footer'>";
@@ -181,6 +195,7 @@ $( document ).ready( function () {
             contentType: false,
             processData: false,
             type: 'POST',
+            headers: {'X-CSRFToken': $('meta[name="csrf-token"]').attr('content')},
             success: function(response) {
                 response = JSON.parse(response);
                 if(response.error) {

@@ -79,6 +79,7 @@ $(document).ready(function(){
             }),
             contentType: 'application/json;charset=UTF-8',
             type: 'POST',
+            headers: {'X-CSRFToken': $('meta[name="csrf-token"]').attr('content')},
             table: table,
             success: function(response) {
                 response = JSON.parse(response);

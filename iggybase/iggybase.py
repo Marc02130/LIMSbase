@@ -9,6 +9,7 @@ from wtforms.validators import DataRequired, Email, Regexp
 from wtforms_sqlalchemy.orm import model_form
 from wtforms_sqlalchemy.fields import QuerySelectField
 from flask_wtf import FlaskForm
+from flask_wtf.csrf import CSRFProtect
 from config import Config
 from flask import render_template
 from flask_security import Security, SQLAlchemyUserDatastore, UserMixin, \
@@ -37,6 +38,9 @@ def create_app():
 
     add_base_routes(iggybase, conf, security, user_datastore)
     configure_hook( iggybase )
+    # After the hook opens g.db_session. A missing token is still rejected
+    # before the view, and the request can close that session.
+    CSRFProtect(iggybase)
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'iggybase.log'))
