@@ -2,11 +2,13 @@
 
 **Repository:** LIMSbase (`iggybase`)
 **First commit:** 2015-07-09
-**Last development era:** ~2015–2017 (Python 3.4 / Flask 0.12)
-**Size:** ~13,200 lines of application Python across ~100 modules; 1,200+ commits
-**Runtime:** Flask + SQLAlchemy + MySQL, Apache `mod_wsgi`, Harvard FAS core facilities
+**Original development era:** ~2015–2017 (Python 3.4 / Flask 0.12)
+**Re-reviewed:** 2026-10-06, after the in-place revival on `master`
+**Size:** ~13,200 lines of application Python across ~100 modules, plus eight security test modules
+**Runtime now:** Python 3.14, Flask 3.1, SQLAlchemy 2.1, gunicorn, MySQL 8, Docker Compose on `127.0.0.1:18000`
+**Runtime then:** Flask + SQLAlchemy + MySQL, Apache `mod_wsgi`, Harvard FAS core facilities
 
-This document is a thorough architectural, security, and maintainability review of the existing codebase. It is written as a record of what the system is, what is valuable in it, what is dangerous, and what it would take to revive or replace it.
+This document reviews the architecture, the security findings, and what the 2026 revival changed. Sections that describe the product (tenancy, metadata engine, billing, domain modules) still describe the code. Sections that graded the 2015 stack, the missing tests, or the open authorization holes are updated below. Where a finding is unchanged, it says so.
 
 ---
 
@@ -23,21 +25,21 @@ Iggybase is a **metadata-driven laboratory information management system** built
 
 The central design decision is correct: **the lab schema is data, not code.** Tables, fields, forms, menus, routes, permissions, and workflows live in MySQL. The Python application is a generic engine plus a few domain plugins.
 
-That design is still how a configurable LIMS should work. The implementation around it is a 2015 academic-core Flask app: end-of-life dependencies, no automated tests, several authorization holes, leftover debug prints, and a number of production-grade bugs that were never closed.
+That design is still how a configurable LIMS should work. The 2015 process around it had end-of-life dependencies, no tests, and authorization holes at the edges. The 2026 revival kept the engine and replaced the runtime, then closed the high findings in §8. It did not fix the production defects in §7, the script SQL in §8.11, or the request-path prints in §8.13. Compose publishes the web app on localhost only.
 
-**The short version:** keep the metadata model, the access-control idea, the workflow engine, and the billing rules. Do not put this stack on a network as-is. Do not throw the domain model away and start from a blank Django app.
+**The short version:** the metadata model, the access-control idea, the workflow engine, and the billing rules are still the product. The process that interprets them now runs on Python 3.14 under gunicorn. It is fit to run on this machine. It is not a finished security review, and it is not ready to expose beyond localhost.
 
 | Area | Grade | Notes |
 |---|---|---|
 | Domain model | Strong | Table/field/role/org/workflow is the hard part, and it is here |
 | Access-control *idea* | Strong | Facility × role × org tree is the right LIMS tenancy model |
-| Access-control *enforcement* | Weak | Several routes skip org filters; impersonation exists |
-| Generic CRUD engine | Strong concept, fragile code | Form generator/parser and table queries are ambitious |
-| Billing | Strong | Real invoicing, not a script |
-| Security | Fail | Unauthenticated search, XSS, file leak, EOL stack, CSRF gaps |
-| Test coverage | None | No pytest/unittest suite |
-| Operability | Dated | In-process cache, Apache 2.2 authz, HTTP-only vhost |
-| Revive-in-place cost | High | Python 3.4 / Flask 0.12 / Flask-Security 1.7 |
+| Access-control *enforcement* | Improved | Search, row fetch, files, `change_user`, cache, action import, and summary HTML are closed in code. Bulk update, modal submit, and §7 defects remain |
+| Generic CRUD engine | Strong concept, fragile code | Form generator/parser and table queries are ambitious. SQLAlchemy 2 required local join fixes; the engine was not rewritten |
+| Billing | Strong, untested in this pass | Real invoicing, not a script. No invoice test was added |
+| Security | Partial | §8.1–§8.10 and §8.12 addressed. §8.11 and §8.13 left open. Bound to `127.0.0.1` |
+| Test coverage | Narrow | Eight MySQL-backed unittest modules, one per security slice. No billing, form, or workflow suite |
+| Operability | Local Docker | gunicorn, Compose, `/healthz`. The Apache 2.2 vhost is still in the tree and is not the server. Cache is still in-process |
+| Revive-in-place | Done for the planned slices | Python 3.14, current pins, security slices, Compose. An empty database still has no facility screens until metadata is loaded |
 
 ---
 
@@ -100,56 +102,62 @@ Science-specific computation is limited and local: lipid-class aggregation, olig
 
 ## 3. Historical and technical context
 
-### 3.1 Stack as frozen in `requirements.txt`
+### 3.1 Stack
+
+Direct pins in `requirements.txt` (2026-10-05), installed on Python 3.14:
 
 ```
-Python          3.4.1          (EOL 2019-03-18)
-Flask           0.12.1         (known CVEs; long superseded)
-Jinja2          2.9.6
-Werkzeug        0.12.1
-Flask-SQLAlchemy 2.0
-SQLAlchemy      1.1.9
-Flask-Security  1.7.5
-Flask-Login     0.3.2
-Flask-WTF       0.12
-WTForms         2.0.2
-mysql-connector-python-rf 2.0.4
-WeasyPrint      0.36
-Flask-WeasyPrint 0.5
-Pillow          4.0.0
-mod-wsgi        4.4.22
+Flask               3.1.3
+Werkzeug            3.1.9
+Jinja2              3.1.6
+SQLAlchemy          2.1.3      (session.query() kept; no Flask-SQLAlchemy)
+PyMySQL             1.2.3
+Flask-Login         0.6.3
+flask-security-too  5.9.1      (argon2 via libpass and argon2-cffi)
+Flask-WTF           1.3.0
+WTForms             3.2.2
+Pillow              12.3.0
+WeasyPrint          70.0
+Flask-WeasyPrint    1.2.0
+gunicorn            26.2.0
+cachelib            0.17.0
 ```
 
-`readme` is an ops runbook for building CPython 3.4.1 from source on RHEL/CentOS (`yum groupinstall "Development tools"`), compiling `mod_wsgi` 4.4.12 against a venv at `/n/informatics/iggybase/iggybase_env`, and installing into that venv.
+`mysql-connector-python-rf` and `mod-wsgi` are gone from the requirements. Flask-Bootstrap 3 is not installed; `iggybase/extensions.py` shims the Bootstrap 3 helpers the templates already call. SQLAlchemy 2 kept `query_property`. `sqlalchemy.orm.relation` did not survive and was replaced with `relationship` where import required it. `Query.join()` takes one target, so the facility/role query and `table_query_fields` join one target at a time.
 
-`iggybase.wsgi` activates that venv, inserts the app onto `sys.path`, and logs to `iggybase.log`. `run.py` is a thin `create_app()` wrapper for the Flask dev server.
+The 2015 freeze this section used to list (Python 3.4.1, Flask 0.12.1, Flask-Security 1.7.5, WeasyPrint 0.36, Pillow 4) is historical. `iggybase.wsgi` and `apache_conf` are still in the tree from that era. `run.py` calls `iggybase.run()` with no `debug=True`. The image runs gunicorn.
 
-`config` is imported from **outside the repository** (`from config import Config`). Database URI, mail, upload folder, secret key, and `ADMINS` live in an untracked module. That was a reasonable 2015 secrets practice; it also means a fresh clone cannot start.
+`config.py` is in the repository. It reads the environment and raises `config.MissingConfig` when a required variable is missing or blank. `.env` is gitignored. `.env.example` has placeholders and no real secrets. `SQLALCHEMY_DATABASE_URI` is built with `urllib.parse.quote` when it is unset, and `database.py` still appends `DATA_DB_NAME`.
 
 ### 3.2 Deployment
 
-`apache_conf` is a single HTTP vhost:
+The server is Docker Compose, not Apache.
 
-- `WSGIScriptAlias /` → `iggybase.wsgi`
-- `WSGIDaemonProcess` with `threads=15`
-- `Options Indexes FollowSymLinks MultiViews`
-- Apache 2.2 authorization (`Order allow,deny` / `Allow from all`)
-- no TLS in the checked-in config
-- error log next to the application code
+- `Dockerfile`: `python:3.14`, user `iggybase` (uid 1000), gunicorn `--bind 0.0.0.0:8000 --workers 2`, no `--reload`
+- `docker-compose.yml`: `mysql:8` with no published port, web published as `127.0.0.1:18000:8000` because another service already uses host port 8000 on the machine where this was brought up. Inside the container the app and the healthcheck still use port 8000
+- web starts after `mysqladmin ping`. `GET /healthz` runs `SELECT 1` and returns 200 `{"status":"ok"}` or 503
+- uploads volume mounted at both `UPLOAD_FOLDER` and `FILE_FOLDER`
+- `initial_admin.sql` is not mounted and is not loaded. `apache_conf` is not the server
 
-`setup.py` is not a real package definition. It was generated from a live virtualenv and lists hundreds of `iggybase_env.lib.python3.4.site-packages.*` packages, including pip internals and Flask’s own test apps. It should not be used and should not be in git.
+`apache_conf` remains a historical HTTP vhost: `WSGIScriptAlias`, `Options Indexes FollowSymLinks MultiViews`, Apache 2.2 `Order allow,deny` / `Allow from all`, no TLS. Do not point a host at it.
 
-### 3.3 What is *not* in the repo
+`setup.py` is still the 2015 venv dump (`iggybase_env.lib.python3.4.site-packages.*`). It is unused. Leave it unused.
 
-- `config.py` / secrets
-- tests
+`readme` explains Compose startup, `/healthz`, and how to create the first account. A fresh database has empty admin tables. `/register` cannot create that first account: it needs a public facility and a public organization, and new accounts start unverified. Password reset is off (`SECURITY_RECOVERABLE` is unset, so `security.forgot_password` is not registered).
+
+### 3.3 What is still not in the repo
+
+These are in the repo now: `config.py`, `.env.example`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, and `tests/test_sec_*.py`. Plans, spec, and requirements for the revival live under `documents/`.
+
+Still absent:
+
 - CI
-- a Dockerfile or compose file
-- a migrations framework (Alembic is not used; schema evolution is SQL scripts)
-- the live metadata that defines most tables (only `initial_admin.sql` is checked in)
+- a migrations framework (Alembic is not used; `create_all` creates missing tables and does not alter columns)
+- the live metadata that defines facility tables (only `initial_admin.sql` is checked in, and Compose does not load it)
 - an API implementation (`iggybase/api/` is a scaffold)
+- a first-admin seed in the image
 
-The application cannot be understood from models.py alone. The real schema is the contents of `table_object` and `field` in a running database.
+The application cannot be understood from models.py alone. The real facility schema is the contents of `table_object` and `field` in a running database. An empty database can log in once an admin, a facility, a level named `admin`, and an organization tree including `Everyone` exist. Facility screens beyond that still need metadata. `core` is registered only when a `Module` row has `blueprint = 1` at process start.
 
 ---
 
@@ -160,8 +168,12 @@ The application cannot be understood from models.py alone. The real schema is th
 ```
 LIMSbase/
   run.py, iggybase.wsgi, setup.py, requirements.txt, readme
-  apache_conf
-  initial_admin.sql          # seed metadata + admin schema
+  config.py, .env.example    # settings from the environment; .env is gitignored
+  Dockerfile, docker-compose.yml, .dockerignore
+  apache_conf                # historical vhost, not the server
+  initial_admin.sql          # not loaded by Compose
+  documents/                 # revival PRD, plans, spec, requirements
+  tests/                     # MySQL-backed security tests
   make_fields.py             # utility to emit field rows from models
   dupe_roles.py              # copy role-permission rows between roles
   files/                     # uploaded operational files (charge methods)
@@ -208,18 +220,19 @@ Facility is a path prefix, not a subdomain. The before-request hook uses `path[0
 
 `create_app()` in `iggybase/iggybase.py`:
 
-1. Load `Config`
+1. Load `Config` from the environment
 2. Attach `Cache()` to the app
-3. `init_db()` — import `iggybase.models` (which runs TableFactory) and `create_all`
-4. Register blueprints from the `module` table
-5. Init Bootstrap, LoginManager, Mail, Flask-Security
-6. Register base routes (register, new_group, welcome, index, home)
+3. `init_db()` — `create_all` for admin models, import `iggybase.models` (which runs TableFactory), then `create_all` again
+4. Register blueprints from `Module` rows where `blueprint = 1`
+5. Init the Bootstrap shim, LoginManager, Mail, Flask-Security-Too
+6. Register base routes (register, new_group, welcome, index, home, `/healthz`)
 7. Install `before_request` / `after_request` / error handlers
+8. Install `CSRFProtect` after the hook so a rejected token can still close `g.db_session`
 
-This is a classic Flask 0.12 factory. Two things make it unusual:
+Two things are still unusual:
 
-- **Boot requires a live MySQL** with metadata already loaded. `models.py` queries `table_object` at import time. An empty database, a down database, or a metadata mismatch prevents the process from starting.
-- **Blueprints are data.** Adding a module is an insert into `module` plus a Python package, not a code change in `create_app`.
+- **Import connects to MySQL.** `database.py` calls `inspect(engine)` at import. An empty database can start: `create_all` runs before the factory queries `table_object`. A database that is down at import still prevents the process from starting. After start, `/healthz` reports a later outage as 503.
+- **Blueprints are data.** Adding a module is an insert into `module` plus a Python package, then a process restart. `create_app` does not watch that table.
 
 ### 4.3 The metadata engine
 
@@ -648,6 +661,8 @@ The new org is inactive, so it should not appear in registration dropdowns until
 
 ## 7. Defects that would fire in production
 
+**Status on 2026-10-06: still open.** The revival did not take these. They were left because the security and library slices could proceed without them. A fresh read of the same sites (`populate_model`, `get_users_by_position`, `send_mail`'s discarded `str.replace`, `ActionEmail.id == Action.id`, the `oganization` typo, class-attribute `UniqueConstraint`s, cache behavior, inverted `check_facility`, racy names, `__del__` rollbacks, `update_table_rows`, the file-parser allowlist check, `last_modified`, and `InstanceCollection` iteration) still matches the code below.
+
 These are not style nits. They look like defects that would have affected real users, invoices, or data integrity.
 
 ### 7.1 `populate_model` discards FK conversion
@@ -757,9 +772,13 @@ These do not match the Python data-model signatures (`__iter__(self)`, `__getite
 
 ## 8. Security review
 
-A LIMS holds identified research data, user PII (names, emails, addresses, phones), and billing instruments (Harvard 33-digit codes, charge methods). The bar is not “internal tool.” Several findings would fail a basic application-security review.
+A LIMS holds identified research data, user PII (names, emails, addresses, phones), and billing instruments (Harvard 33-digit codes, charge methods). The bar is not “internal tool.”
+
+**Status on 2026-10-06.** The high findings in §8.1 through §8.8 were closed in code and covered by `tests/test_sec_*.py` against MySQL. §8.9 and §8.10 and §8.12 changed with the new stack and Compose. §8.11 and §8.13 were not taken. The original write-up is kept under each heading so the defect is still visible, then a status line says what the code does now.
 
 ### 8.1 Unauthenticated search — high
+
+**Status: fixed.** Both routes have `@login_required`. `tests/test_sec_search.py`. An anonymous search redirects to `/login`.
 
 ```python
 @core.route('/search', methods=['GET', 'POST'])
@@ -773,6 +792,8 @@ No `@login_required`. `before_request` does not construct RAC/OAC for anonymous 
 
 ### 8.2 Generic row fetch with org filter off — high
 
+**Status: fixed for this route.** `get_row` requires login, checks `RoleAccessControl.has_access` for the table, and loads with `organization_id IN org_ids`. An empty `org_ids` list uses `false()` because `IN ()` is invalid SQL. `get_price` uses the same org rule. The default of `OrganizationAccessControl.get_row` stays unscoped for other callers. `tests/test_sec_row.py`.
+
 ```python
 @core.route('/get_row/<table_name>/ajax')
 def get_row(...):
@@ -782,6 +803,10 @@ def get_row(...):
 Any authenticated user who can reach `core.get_row` can read arbitrary columns from any table `get_table` will resolve, by any equality criteria the client sends. That includes admin tables if they are registered as `admin_table`.
 
 ### 8.3 Impersonation / org-scope switch — high
+
+**Status: partially fixed.** `caller_is_admin()` is true only when the current role's level name strips and lowercases to exactly `admin`. Any other caller gets `success` false and the session org is left alone. A successful switch writes one `iggybase.audit` info line with actor id, target id, facility name, and a UTC timestamp. The line does not include the request body, a password, or the session cookie. `tests/test_sec_change_user.py`.
+
+What remains is the design: an admin still recomputes `org_ids` as the target user. There is no time box and no banner. `make_user_menu` is commented out in `page_template.py`. This is not yet a separate impersonation session.
 
 `POST /core/change_user` with `{user_id}`:
 
@@ -795,6 +820,8 @@ A facility admin (or anyone granted the route — it is metadata) can browse ano
 
 ### 8.4 File download is not org-checked — high
 
+**Status: fixed.** `file_row` and `file` load the owning row with `get_row(..., org_ids=oac.org_ids)` before `send_from_directory`. A missing or out-of-org row is an empty 404. `safe_join` keeps the table and row under `FILE_FOLDER`. `tests/test_sec_files.py`. Charge-method files under `files/` are still in git.
+
 ```python
 @core.route('/files/<table_name>/<row_name>/<filename>')
 def file_row(...):
@@ -805,6 +832,8 @@ Authorization is “logged in.” `send_from_directory` prevents `../` escape, b
 
 ### 8.5 Stored XSS in summaries — high
 
+**Status: fixed in the summary and save-message paths that were in scope.** Anchors are no longer built in SQL. `TableQuery.format_results` escapes link text and URLs with `markupsafe.escape` before wrapping them in an anchor. A download (`allow_links` false) keeps the raw value. `saved_data` escapes the visible name and the href. Templates still mark `page_msg` and summary cells safe because the user value is escaped first. `tests/test_sec_html.py`. The client still receives HTML, not a `{text, href}` object. Search modal field names are escaped the same way.
+
 ```python
 col = ('<a href="' + link + col + '">' + col + '</a>')
 ```
@@ -814,6 +843,10 @@ This is assembled in SQL and returned as DataTables JSON. Sample names, oligo na
 Fix: return a structured `{text, href}` and let the client or Jinja escape.
 
 ### 8.6 CSRF gaps — medium / high
+
+**Status: fixed for state-changing requests that Flask-WTF checks.** `CSRFProtect` is installed in `create_app` after `configure_hook`, so `g.db_session` exists when a missing token is rejected and the view does not run. A missing or invalid token is a 400. GET, HEAD, OPTIONS, and TRACE are not checked. `base.html` exposes `csrf-token`. `main.js`, `action_summary.js`, and `billing_summary.js` send `X-CSRFToken`. `multiple_entry` calls `validate_csrf` before `FormParser.save` and does not delete the token error to skip that check. `tests/test_sec_csrf.py` keeps CSRF enabled.
+
+`data_entry` still calls `fg.form_class.validate_csrf_data(...)`. That method is not on the form class. A POST that already passed `CSRFProtect` can then raise `AttributeError`. That call was not rewritten. `modal_add_submit` still has no extra check of its own; `CSRFProtect` covers the POST.
 
 Checked: `data_entry` POST (explicit `validate_csrf_data`).
 
@@ -832,9 +865,15 @@ JSON POSTs in Flask-WTF 0.12 are easy to get wrong; these endpoints read `reques
 
 ### 8.7 Cache administration — medium
 
+**Status: fixed for the write path and the role check.** `/core/cache/` aborts 403 unless `caller_is_admin()`. The set-key and set-version branches are gone, so those posts do not call `cache.set` or `cache.set_version`. An admin can still read a key. `tests/test_sec_cache.py`. The cache is still in-process `cachelib.SimpleCache`, so the staleness notes in §7.7 remain.
+
 `/core/cache/` is a logged-in form that gets and sets arbitrary cache keys and version numbers. It is not role-restricted in code (only via `route_role` metadata). Combined with the summary cache, an attacker can plant a JSON payload that a summary page will serve to other users (XSS amplifier) or force versions that resurrect stale data.
 
 ### 8.8 Dynamic import from the database — high if admin is compromised
+
+**Status: fixed for action hooks and workflow step imports.** `iggybase/core/action_allowlist.py` allows `iggybase.core.actions` functions `add_record`, `update_record`, and `initiate_billing`. `execute_action` and `get_func` import only a pair on that list. Anything else is logged and not imported. Workflow step imports go through `import_step_routes`, limited to `core`, `billing`, `murray`, `smallmolecule`, `sequencing`, `laboratory`, `admin`, and `interfaces`. `tests/test_sec_actions.py`.
+
+Not on that allowlist, and not changed: `get_calculation`'s `__import__`, and `utilities.get_table` / `get_table` inside role access control via `import_module`. `get_action`'s `ActionEmail` outer join still compares `ActionEmail.id` to `Action.id` and does not return the email row on SQLAlchemy 2. The test loads the action row itself. `initiate_billing` still has `return return_values.update(results)`, which returns `None`.
 
 `Action.namespace` + `Action.function` are `import_module`’d and called. Anyone who can edit `action` (or SQL-inject into it via a script) has RCE in the web worker.
 
@@ -842,17 +881,25 @@ Mitigation if the engine is kept: allowlist `(module, function)` pairs in code.
 
 ### 8.9 End-of-life dependencies — high
 
+**Status: fixed by replacement.** The process is Python 3.14 with the pins in §3.1. The old sentence below describes the tree as it was. Those versions are no longer installed.
+
 Python 3.4, Flask 0.12, Jinja2 2.9, Werkzeug 0.12, Pillow 4, WeasyPrint 0.36, html5lib 0.999999999. Public CVEs exist across this set (Flask/Jinja XSS and sandbox issues, Pillow image bombs, old Werkzeug debugger risks). Even a “private” core-facility server on the Harvard network is a poor place for this combination in 2026.
 
 ### 8.10 Transport and Apache config — medium
+
+**Status: the checked-in vhost is no longer how the app is served.** Compose publishes `127.0.0.1:18000` only. gunicorn listens on `8000` inside the container. There is no TLS terminator in this repo. `apache_conf` is unchanged and still has `Options Indexes`, `FollowSymLinks`, and `Allow from all`. Do not deploy that file.
 
 Checked-in vhost is HTTP, directory indexes on, `Allow from all`, `FollowSymLinks`, logs and the WSGI file inside the document root pattern (`/var/www/html/iggybase`). `Options Indexes` on a LIMS is how `files/` and `iggybase.log` get listed.
 
 ### 8.11 Scripts use string-built SQL — medium (ops path)
 
+**Status: still open.** Not part of the revival.
+
 `IggyScript.pk_exists` and the migrate/Illumina scripts interpolate identifiers and values. These run with DB credentials from `Config`. A hostile filename or RunInfo field is a plausible injection if a script is pointed at untrusted input.
 
 ### 8.12 Password and session notes
+
+**Status: updated.** `lm.session_protection = 'strong'` remains. `SECRET_KEY` and `SECURITY_PASSWORD_SALT` come from the environment. New accounts use `flask_security.utils.hash_password` (argon2). `User.password` is `String(255)`. `fs_uniquifier` is a non-null unique `String(64)`. `User.is_active` is true only when `active` and `verified` are both true. `User.set_password` still calls Werkzeug `generate_password_hash` and is not the path the readme uses for the first account. Legacy hashes were not preserved; the first database is empty. Password reset stays off.
 
 - `lm.session_protection = 'strong'` is good.
 - Secret key is in external `Config` — fine, as long as it was not reused and is long enough.
@@ -860,6 +907,8 @@ Checked-in vhost is HTTP, directory indexes on, `Allow from all`, `FollowSymLink
 - `User.password` is 120 chars; some modern hashes are longer.
 
 ### 8.13 Information disclosure
+
+**Status: still open.** The revival did not remove these prints or the route-map log line. `change_user` now has the audit line in §8.3. Denied routes still return 404. The 403 and 404 handlers still require login, and they need `PageForm` rows (`forbidden`, `not_authorized`) plus `AdminNavBar` and `AdminSideBar` menu rows or the error template raises while rendering.
 
 - Denied routes return 404, which is reasonable.
 - 403/404/500 handlers require login, so anonymous users hitting a missing page get a login redirect rather than an error page. Fine.
@@ -876,7 +925,7 @@ Checked-in vhost is HTTP, directory indexes on, `Allow from all`, `FollowSymLink
 - Soft deletes (`active`) rather than hard deletes for most data.
 - CSRF present on the primary data-entry form.
 
-The engine *wanted* to be careful. Enforcement is incomplete at the edges: search, get_row, files, change_user, cache, bulk update, modal submit.
+The engine wanted to be careful. Search, `get_row`, files, non-admin `change_user`, cache writes, summary HTML, and unbound action imports were the edges that got code and tests. Bulk update (`update_table_rows` still carries the org-check TODO), `modal_add_submit`, script SQL, and the §7 defects are the edges that remain.
 
 ---
 
@@ -893,13 +942,13 @@ The engine *wanted* to be careful. Enforcement is incomplete at the edges: searc
 
 ### 9.2 What does not
 
-**No tests.** A metadata engine, an org-tree walk, a form parser, and invoice totals with no unit or integration tests means every change is a production experiment.
+**Tests cover the security slices only.** `tests/test_sec_search.py`, `test_sec_row.py`, `test_sec_files.py`, `test_sec_change_user.py`, `test_sec_csrf.py`, `test_sec_html.py`, `test_sec_cache.py`, and `test_sec_actions.py` each use their own MySQL schema (`iggybase_sec` through `iggybase_sec8`). They do not mock the organization filter. There is still no test for the org-tree walk outside those fixtures, the form parser, name allocation, or invoice totals. A change outside those eight files is still a production experiment.
 
-**Debug left in the request path.** `print('before_request:…')`, `print('oac init:…')`, `print('cache miss')`, `print('rollback')`, `print('extra')` during the org walk.
+**Debug left in the request path.** `print('before_request:…')`, `print('oac init:…')`, `print('cache miss')`, `print('rollback')`, `print('extra')` during the org walk. Unchanged.
 
 **Bare `except:`** in save/insert/SPINAL/get_func. Failures become a log line and `None`.
 
-**Inconsistent style.** Spaces inside parentheses (`create_app( )`), mixed `filter_by` / `filter`, mixed Python 2 comments (`#python3`, `#if isinstance(pk, basestring)`), leftover `flask.ext.*` imports (removed in Flask 1.0; the project already uses a mix of `flask.ext.security` and `flask_weasyprint`).
+**Inconsistent style.** Spaces inside parentheses (`create_app( )`), mixed `filter_by` / `filter`, mixed Python 2 comments (`#python3`, `#if isinstance(pk, basestring)`). `flask.ext.*` imports are gone from `iggybase/`. `setup.py` still names `flask.ext` inside the unused freeze. `from flask_wtf import Form` is WTForms' `Form`; the code imports `FlaskForm` by name.
 
 **Dead or half-built packages.** `api/` empty. `laboratory/` empty. `admin/decorators.py` and `admin/views.py` thin. `mod_auth` referenced but gone.
 
@@ -928,11 +977,12 @@ Any revival should put tests around these before moving them.
 
 ### 9.4 Documentation that exists
 
-- `readme` — Python 3.4 + mod_wsgi install only
-- Inline comments and TODOs — the best docs in the repo
-- No architecture doc, no ERD, no operator runbook, no data dictionary beyond `initial_admin.sql`
+- `readme` — Compose startup, `/healthz`, and the first-account command. It is no longer the Python 3.4 + mod_wsgi runbook
+- `documents/` — one PRD plus a plan, spec, and requirements for libraries, critical security, and Docker
+- Inline comments and TODOs — still the best description of the engine
+- No ERD and no data dictionary beyond `initial_admin.sql`
 
-This file is intended to close that gap.
+This file is the architecture review. The revival documents are the record of what was changed.
 
 ---
 
@@ -952,9 +1002,9 @@ Uploads go to `Config.UPLOAD_FOLDER / <table> / <row_name> / <filename>`. The re
 
 ### 10.3 Logging
 
-`logging.basicConfig` to `iggybase.log` at DEBUG, configured both in `create_app` and in the WSGI file. `sys.path` is also given a directory named `iggybase.log`, which is accidental.
+`logging.basicConfig` to `iggybase.log` at DEBUG, configured in `create_app` and still in the WSGI file. `sys.path` is also given a directory named `iggybase.log`, which is accidental. The image `chown`s `/app` to `iggybase` because that log is created at startup and the workdir would otherwise be root-owned.
 
-No request id, no structured logs, no access/authorization audit trail for `change_user`, role change, invoice generate, or bulk update.
+`change_user` writes one `iggybase.audit` line on success. There is still no request id, and no audit trail for role change, invoice generation, or bulk update. The prints in §8.13 still run.
 
 ### 10.4 Processes that are not the web app
 
@@ -987,25 +1037,25 @@ These are the operational backbone. A revival that only ports the Flask app will
 
 ## 12. What to discard or replace
 
-1. **The runtime.** Python 3.4, Flask 0.12, Flask-Security 1.7, `flask.ext.*`, Werkzeug 0.12, Pillow 4, WeasyPrint 0.36.
+1. **The 2015 runtime.** Replaced. Python 3.14, Flask 3.1, flask-security-too 5.9, Werkzeug 3.1, Pillow 12, WeasyPrint 70, gunicorn. `flask.ext` is gone from application code. `setup.py` still lists the old freeze and should stay unused.
 
-2. **Boot-time TableFactory against a live DB.** Generate models offline, or load a registry after a health-checked DB connection with an explicit refresh endpoint. The app must start far enough to say “database unavailable.”
+2. **Boot-time TableFactory against a live DB.** Still how models are built. Importing `iggybase` connects because `database.py` calls `inspect(engine)` at import. `/healthz` can report the database down after the app has started. The factory still runs at startup.
 
-3. **In-process `SimpleCache` and the `/cache/` UI.** Use Redis if summaries are actually hot; otherwise delete until measured.
+3. **In-process cache.** Still `cachelib.SimpleCache`. The set-key and set-version UI is gone. The read UI remains, and only an admin can open it. Redis was not added.
 
-4. **HTML-in-SQL links.**
+4. **HTML-in-SQL links.** Removed from the summary formatter. The response is still an HTML anchor, with the user value escaped first.
 
-5. **`setup.py` as venv dump, DataTables examples, datepicker locale forest.**
+5. **`setup.py` as venv dump, DataTables examples, datepicker locale forest.** Still in the tree.
 
-6. **`change_user` as currently designed.** If support needs impersonation, do it as a time-boxed, audited, clearly-bannered session, not an org_id swap.
+6. **`change_user` as an org-scope swap.** Admin-only and audited. Still not a time-boxed, bannered session.
 
-7. **Public search, default-off org filters, login-only file server.**
+7. **Public search and the login-only file server.** Closed. See §8.1 and §8.4. Other callers of `get_row` can still pass no `org_ids`.
 
-8. **Action `import_module` from arbitrary namespace.** Allowlist.
+8. **Action `import_module` from an arbitrary namespace.** Allowlisted. See §8.8 for the imports that were left alone.
 
-9. **Apache 2.2 HTTP vhost with Indexes.**
+9. **Apache 2.2 HTTP vhost with Indexes.** Still in `apache_conf`. Compose does not use it.
 
-10. **Hardcoded FAS letterhead in invoice.py** — move to `facility` / config.
+10. **Hardcoded FAS letterhead in invoice.py.** Unchanged. Move to `facility` or config if a second campus is ever real.
 
 ---
 
@@ -1031,9 +1081,26 @@ If the only goal is “keep historical invoices readable”:
 - snapshot the DB
 - do not patch toward modernity
 
-### Option C — In-place upgrade (not recommended)
+### Option C — In-place upgrade (this is what was done)
 
-A Flask 0.12 → 3.x + Python 3.4 → 3.12 upgrade across `flask.ext`, WTForms 2, Flask-Security 1.7, and dynamic model generation is a rewrite with extra steps. You would still need to fix every item in §7 and §8.
+The 2015 text called this a rewrite with extra steps and did not recommend it. It is the path that was taken, on Python 3.14 rather than 3.12, and with a narrower scope than "fix every item in §7 and §8."
+
+What landed:
+
+- library upgrade on Python 3.14, keeping `session.query()`, the custom engine, and `DBFactory`
+- §8.1–§8.8 in code, each with one MySQL-backed unittest module
+- Docker Compose with gunicorn, `/healthz`, and a login page. WeasyPrint `write_pdf()` returned `%PDF-` inside the image
+- secrets from the environment. New passwords are argon2. The password column is `varchar(255)`
+
+What was left on purpose:
+
+- every defect in §7
+- §8.11 script SQL and §8.13 log noise
+- `get_action`'s `ActionEmail` join, `data_entry`'s `validate_csrf_data` call, and `initiate_billing`'s `return return_values.update(results)`
+- loading `initial_admin.sql` (its module names do not match the blueprint packages)
+- public exposure. The published port binds to `127.0.0.1`
+
+Option A remains the right plan if the generic screens, billing, and workflows have to be trustworthy for a second campus. Option C made the existing engine start, and closed the holes that were called high.
 
 ### Suggested order if Option A is chosen
 
@@ -1105,7 +1172,12 @@ A Flask 0.12 → 3.x + Python 3.4 → 3.12 upgrade across `flask.ext`, WTForms 2
 | `scripts/murray/*` | Genotype import |
 | `scripts/insert/*` | Metadata load |
 | `initial_admin.sql` | Seed |
-| `apache_conf`, `iggybase.wsgi`, `readme` | Deploy |
+| `apache_conf`, `iggybase.wsgi` | Historical Apache deploy. Not used by Compose |
+| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Current deploy |
+| `config.py`, `.env.example` | Environment-backed settings |
+| `readme` | How to start Compose and sign in |
+| `tests/test_sec_*.py` | Security-slice tests |
+| `documents/` | Revival PRD, plans, spec, requirements |
 
 ---
 
@@ -1152,7 +1224,7 @@ static/mod_auth/{login.js, main.js}
 | 2016-02-23 | `mod_` prefix removed → package becomes `auth` |
 | 2016-03-10 | `auth/` deleted. Home moves to `base_routes`. Login is Security-only |
 
-Fossils: `lm.login_view`, `setup.py` listing `iggybase.mod_auth`, seed `module` / `page_form` rows for `mod_auth/login` etc., `templates/security/*` replacing `templates/mod_auth/*`, and `dupe_roles.py` still importing `iggybase.mod_admin.models`.
+Fossils that remain: `setup.py` listing `iggybase.mod_auth`, seed `module` / `page_form` rows for `mod_auth/login` in `initial_admin.sql` (not loaded), `templates/security/*` replacing `templates/mod_auth/*`, and `dupe_roles.py` still importing `iggybase.mod_admin.models`. `lm.login_view` is `security.login` now.
 
 ---
 
@@ -1160,12 +1232,14 @@ Fossils: `lm.login_view`, `setup.py` listing `iggybase.mod_auth`, seed `module` 
 
 Iggybase is a real LIMS. The person who wrote it understood the domain: cores sell services to labs, labs are trees of people, permissions are a matrix, and the next facility will invent a table you have not heard of yet. The metadata engine, the RAC/OAC split, the workflow bag-of-rows, and the billing module are the artifacts of that understanding.
 
-The implementation is a 2015 Flask app that grew until it invoiced PIs. It has the expected scars: no tests, EOL libraries, debug prints, a few inverted booleans, a few typos that disable whole features (`oganization`, discarded `str.replace`, `ActionEmail.id == Action.id`), and authorization that is strong in the center and porous at the edges.
+The 2026 revival kept that engine. The process is Python 3.14, Flask 3.1, SQLAlchemy 2.1, and gunicorn in Compose, published on localhost. The high authorization findings in §8.1–§8.8 have code and MySQL-backed tests. Passwords for new accounts are argon2. The app can serve `/healthz` and `/login` from an empty database.
 
-If this is a portfolio piece, the thing to show is the metadata model and the tenancy design, not the Flask 0.12 handlers.
+The scars that were left are specific. §7 still describes defects that would hit invoices, org dropdowns, and bulk update. Script SQL is still interpolated. The request path still prints. `oganization`, the discarded `str.replace`, and `ActionEmail.id == Action.id` still disable the features they sit in. Facility screens do not appear until `table_object` and `field` rows exist. `core` is not a blueprint until a `Module` row says so and the process restarts.
 
-If this is a system anyone might run again, the metadata tables and the billing rules are the migration source. The process that currently interprets them should not be put back on a network without the work in §8 and §13.
+If this is a portfolio piece, the thing to show is the metadata model and the tenancy design, plus the fact that the engine now imports and the high edges are tested.
+
+If this is a system anyone might run beyond this machine, the next work is §7 and the remaining edges in §8 and §12, not another pass over the pins. Do not put `apache_conf` in front of it. Do not publish the Compose port past `127.0.0.1` until those items are closed.
 
 ---
 
-*Analysis based on the repository as of the date of this document. Live database contents, the external `config` module, and production Apache/TLS settings were not available and may differ from what is checked in.*
+*First written against the 2015–2017 tree. Re-reviewed on 2026-10-06 against `master` after the library, security, and Docker slices. `config.py` is in the repo. The Apache vhost was not used. Live facility metadata is still not in git. Grades in §1 are the 2026 grades.*
