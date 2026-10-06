@@ -266,6 +266,11 @@ class RoleAccessControl:
     def route_access(self, route):
         module = route[1]
         route = '.'.join(route[1:3])
+        # Routes are copied into the session at sign-in. A grant added after
+        # that, such as the stored home screen, would 404 until the next
+        # sign-in. Reload once when the requested route is missing.
+        if route not in self.routes:
+            self.set_routes()
         if route in self.routes:
             g.module = module
             return True

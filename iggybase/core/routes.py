@@ -37,6 +37,14 @@ def default(facility_name):
     return pt.page_template_context('index.html')
 
 
+@core.route('/home/')
+@login_required
+@templated()
+def home(facility_name):
+    pt = PageTemplate(MODULE_NAME, 'home')
+    return pt.page_template_context(description=pt.page_form.description)
+
+
 @core.route('/summary/<table_name>/', defaults={'page_context': 'base-context'})
 @core.route('/summary/<table_name>/<page_context>')
 @login_required
