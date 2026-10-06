@@ -54,6 +54,13 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_NAME = "iggybase_remember"
+    # The header Logout control is a GET link. Flask-Security 5 registers
+    # /logout as POST only, so that link returns 405 and iggybase_session
+    # and iggybase_remember stay. /login then treats the browser as signed
+    # in and sends it to /, and the before-request hook sends / to the
+    # user's home page.
+    SECURITY_LOGOUT_METHODS = ["GET", "POST"]
+    SECURITY_POST_LOGOUT_VIEW = "security.login"
 
     DB_USER = _required("DB_USER")
     DB_PASSWORD = _required("DB_PASSWORD")
