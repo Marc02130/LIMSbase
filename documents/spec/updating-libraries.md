@@ -109,6 +109,8 @@ Pillow must import after install (LIB-12).
 
 WeasyPrint imports only when Cairo and Pango are present. The library slice records whether the developer machine can import it. The Docker image is the environment that must import it (DKR-2). This plan does not render an invoice.
 
+Checked 2026-10-05 in the Python 3.14 environment that installed `requirements.txt`. `import PIL` (Pillow 12.3.0), `import weasyprint` (70.0), and `from flask_weasyprint import HTML, render_pdf` (Flask-WeasyPrint 1.2.0) all succeed. `pkg-config` reports Cairo 1.18.4, Pango 1.57.0, and GDK-Pixbuf 2.44.5. No PDF was rendered here. The container render check remains DKR-10.
+
 ## Boot check
 
 `database.py` creates the engine at import, and `iggybase/models.py` runs `TableFactory` at import. LIB-10 is:

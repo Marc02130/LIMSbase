@@ -56,6 +56,8 @@ LIB-12.
 
 Done when Pillow imports and the WeasyPrint result is recorded.
 
+Result, 2026-10-05: Pillow 12.3.0, WeasyPrint 70.0, and Flask-WeasyPrint 1.2.0 import on this machine. Cairo 1.18.4 and Pango 1.57.0 are installed. The pins were already in `requirements.txt`. No PDF was rendered. Detail is in the library spec.
+
 ## Out of scope
 
 Login policy, CSRF, org filters, the container, invoice PDF rendering, and analysis §7.
