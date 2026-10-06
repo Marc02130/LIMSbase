@@ -48,6 +48,13 @@ class Config:
     SECURITY_PASSWORD_SALT = _required("SECURITY_PASSWORD_SALT")
     SECURITY_PASSWORD_HASH = _optional("SECURITY_PASSWORD_HASH", "argon2")
 
+    # Browsers send cookies to every port on a host. The default name "session"
+    # collides with other local apps, and a login POST then has no CSRF token.
+    SESSION_COOKIE_NAME = "iggybase_session"
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_NAME = "iggybase_remember"
+
     DB_USER = _required("DB_USER")
     DB_PASSWORD = _required("DB_PASSWORD")
     DB_HOST = _required("DB_HOST")
