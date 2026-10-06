@@ -2,6 +2,7 @@ import os, logging, sys
 import time
 from collections import OrderedDict
 from flask import Flask, g, send_from_directory, abort, url_for, request
+from werkzeug.routing import BuildError
 from flask import redirect, flash
 from wtforms import StringField, SelectField, ValidationError, BooleanField
 from wtforms.validators import DataRequired, Email, Regexp
@@ -74,9 +75,24 @@ def add_base_routes( app, conf, security, user_datastore ):
         return security_menu()
 
     def security_menu():
-        navbar = OrderedDict([('Login', {'title': 'Login', 'url':url_for('security.login')}), ('Register', {'title':'Register', 'url':url_for('register')}),
-            ('Reset Password', {'title':'Reset Password', 'url':url_for('security.forgot_password')}), ('Logout', {'title':'Logout', 'url':url_for('security.logout')})])
-        return dict(navbar = navbar)
+        # Password recovery is off unless SECURITY_RECOVERABLE is set, so
+        # security.forgot_password is not always registered.
+        items = (
+            ("Login", "Login", "security.login"),
+            ("Register", "Register", "register"),
+            ("Reset Password", "Reset Password", "security.forgot_password"),
+            ("Logout", "Logout", "security.logout"),
+        )
+        navbar = OrderedDict()
+        for key, title, endpoint in items:
+            try:
+                navbar[key] = {"title": title, "url": url_for(endpoint)}
+            except BuildError:
+                continue
+        # Security pages are not built by PageTemplate, which is what usually
+        # supplies these. base.html still evaluates them on every layout.
+        return dict(navbar=navbar, page_context="base-context", page_msg="",
+                    scripts=[])
 
     def get_new_name(model):
         to = (models.TableObject.query.
