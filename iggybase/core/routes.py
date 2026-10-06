@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import urllib
+from datetime import UTC, datetime
 from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
 from werkzeug.exceptions import NotFound
@@ -223,14 +224,26 @@ def change_role(facility_name):
 @core.route('/change_user', methods=['POST'])
 @login_required
 def change_user(facility_name):
-    user_id = request.json['user_id']
     rac = g_helper.get_role_access_control()
+    if not rac.caller_is_admin():
+        return json.dumps({'success': False})
+    user_id = request.json['user_id']
     user = rac.change_user(user_id)
     success = False
     if user:
         oac = g_helper.get_org_access_control()
         session.pop('org_id', None)
         success = oac.set_user(user.User.id)
+        if success:
+            # Actor, target id, facility, and UTC time only. Not the body,
+            # the password, or the session cookie.
+            logging.getLogger('iggybase.audit').info(
+                'change_user actor_id=%s target_id=%s facility=%s at=%s',
+                rac.user.id,
+                user.User.id,
+                facility_name,
+                datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            )
     return json.dumps({'success': success})
 
 @core.route('/data_entry/<table_name>/<row_name>', defaults={'page_context': None}, methods=['GET', 'POST'])

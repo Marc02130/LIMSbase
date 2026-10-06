@@ -490,6 +490,13 @@ class RoleAccessControl:
         else:
             return False
 
+    def caller_is_admin(self):
+        """True only when the current role's level name strips to admin."""
+        if self.role is None or self.role.role_level is None:
+            return False
+        name = self.role.role_level.name or ''
+        return name.strip().lower() == 'admin'
+
     def change_user(self, user_id):
         """updates the user
         """
