@@ -5,6 +5,8 @@ import time
 import urllib
 from importlib import import_module
 from flask import request, jsonify, abort, g, render_template, current_app, redirect, send_from_directory, session, flash
+from werkzeug.exceptions import NotFound
+from werkzeug.security import safe_join
 import flask_excel as excel
 from flask_security import login_required
 from iggybase import g_helper
@@ -174,17 +176,41 @@ def search_results(facility_name):
     return sf.search_results()
 
 
+def _owned_file(table_name, row_name, directory, filename):
+    """Send a file only when that row's organization is in org_ids.
+
+    The same empty 404 is used when the row is missing, out of org, or the
+    file cannot be sent, so an out-of-org path is not distinguishable. A
+    direct 404 skips the metadata error page.
+    """
+    if directory is None or not row_name:
+        return '', 404
+    oac = g_helper.get_org_access_control()
+    row = oac.get_row(table_name, {'name': row_name}, org_ids=oac.org_ids)
+    if row is None:
+        return '', 404
+    try:
+        return send_from_directory(directory, filename)
+    except NotFound:
+        return '', 404
+
+
 @core.route('/files/<table_name>/<row_name>/<filename>')
 @login_required
 def file_row(facility_name, table_name, row_name, filename):
-    file_dir = os.path.join(current_app.config['FILE_FOLDER'], table_name, row_name)
-    return send_from_directory(file_dir, filename)
+    # safe_join keeps the table and row under FILE_FOLDER. send_from_directory
+    # then keeps the filename inside that directory.
+    directory = safe_join(current_app.config['FILE_FOLDER'], table_name, row_name)
+    return _owned_file(table_name, row_name, directory, filename)
 
 @core.route('/file/<table_name>/<filename>')
 @login_required
 def file(facility_name, table_name, filename):
-    file_dir = os.path.join(current_app.config['FILE_FOLDER'], table_name)
-    return send_from_directory(file_dir, filename)
+    # Flat files are FILE_FOLDER / table / filename. The row name is the
+    # filename without its extension.
+    directory = safe_join(current_app.config['FILE_FOLDER'], table_name)
+    row_name = os.path.splitext(filename)[0]
+    return _owned_file(table_name, row_name, directory, filename)
 
 @core.route('/change_role', methods=['POST'])
 @login_required
