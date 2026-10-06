@@ -373,6 +373,11 @@ def multiple_entry(facility_name, table_name, row_names, page_context):
 @login_required
 @templated()
 def cache(facility_name):
+    # A signed-in caller is not enough. Only an admin may open this page.
+    # set-key and set-version are not accepted from anyone, including an admin.
+    rac = g_helper.get_role_access_control()
+    if not rac.caller_is_admin():
+        abort(403)
     module_name = MODULE_NAME
     form = forms.CacheForm()
     value = None
@@ -382,26 +387,11 @@ def cache(facility_name):
                 value = current_app.cache.get(form.data['key'])
                 if hasattr(value, 'data'):
                     value = value.data
-        elif 'set_key' in request.form and request.form['set_key']:
-            if form.data['key'] and form.data['value']:
-                current_app.cache.set(form.data['key'], form.data['value'],
-                                      None, None, False)
-                value = ('successfully set key ' + form.data['key'] + ' = ' +
-                         form.data['value'])
         elif 'get_version' in request.form and request.form['get_version']:
             if form.data['refresh_obj']:
                 value = str(current_app.cache.get_version(form.data['refresh_obj']))
             elif form.data['key']:
                 value = str(current_app.cache.get_key_version(form.data['key']))
-        elif 'set_version' in request.form and request.form['set_version']:
-            if form.data['refresh_obj'] and form.data['version']:
-                success = current_app.cache.set_version(form.data['refresh_obj'], form.data['version'])
-                if success:
-                    value = 'successfully '
-                else:
-                    value = 'failed to '
-                value += ('set version ' + form.data['refresh_obj'] + ' = ' +
-                          form.data['version'])
 
     pt = PageTemplate(MODULE_NAME, 'cache')
 
