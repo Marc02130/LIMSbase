@@ -1,6 +1,6 @@
 # Iggybase
 
-Start MySQL and the web app with Docker Compose. The server is gunicorn. Apache `mod_wsgi` is not used. The site listens on this machine only, at http://127.0.0.1:8000.
+Start MySQL and the web app with Docker Compose. The server is gunicorn. Apache `mod_wsgi` is not used. The site listens on this machine only, at http://127.0.0.1:18000.
 
 ## Start
 
@@ -21,18 +21,18 @@ docker compose up --build -d
 When `docker compose ps` shows `web` as healthy, the process can reach the database:
 
 ```text
-curl http://127.0.0.1:8000/healthz
+curl http://127.0.0.1:18000/healthz
 ```
 
 A healthy process returns `{"status":"ok"}`. If the database is down, the same URL returns 503.
 
-The first start creates empty admin tables. `initial_admin.sql` is not loaded. Host port 8000 must be free. The published address in `docker-compose.yml` is `127.0.0.1:8000:8000`.
+The first start creates empty admin tables. `initial_admin.sql` is not loaded. Another service already listens on host port 8000, so Compose publishes Iggybase at `127.0.0.1:18000`. Inside the container the app still listens on port 8000.
 
 Stop the containers with `docker compose down`. The `mysql-data` and `uploads` volumes keep the database and files. `docker compose down -v` deletes those volumes.
 
 ## Log in
 
-Open http://127.0.0.1:8000/login. The form asks for a username or email, a password, and Remember Me.
+Open http://127.0.0.1:18000/login. The form asks for a username or email, a password, and Remember Me.
 
 No account is created for you. `/register` cannot create the first one: it requires a public facility and a public group, and it stores the new account as unverified. An unverified account cannot sign in. Password reset is not enabled.
 
@@ -57,6 +57,6 @@ with app.app_context():
 '
 ```
 
-The command prints mapper warnings, then a line `created you@example.com`. Sign in at http://127.0.0.1:8000/login with that email and password. A correct password redirects to `/`.
+The command prints mapper warnings, then a line `created you@example.com`. Sign in at http://127.0.0.1:18000/login with that email and password. A correct password redirects to `/`.
 
 That next page does not render on an empty database. The account has no facility role, and the database has no facility or screen metadata. Those rows are not part of startup. The login form itself is the page this stack is meant to serve until that metadata is loaded.

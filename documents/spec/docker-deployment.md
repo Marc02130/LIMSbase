@@ -25,7 +25,7 @@ Services:
 
 `mysql` has a healthcheck of `mysqladmin ping`. `web` uses `depends_on` with `condition: service_healthy`.
 
-`web` publishes `127.0.0.1:8000:8000` only. `mysql` has no `ports:` entry. The web container reaches it on the Compose network as host `mysql`.
+`web` publishes `127.0.0.1:18000:8000` only. Host port 8000 is already taken on this machine. `mysql` has no `ports:` entry. The web container reaches it on the Compose network as host `mysql`.
 
 Named volumes:
 

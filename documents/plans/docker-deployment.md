@@ -23,7 +23,7 @@ DKR-3, DKR-4, DKR-5, DKR-8, DKR-9.
 
 - `docker-compose.yml` with `mysql:8` and `web`.
 - MySQL healthcheck gates the web process.
-- Web port is `127.0.0.1:8000` only. MySQL has no published port.
+- Web port is `127.0.0.1:18000` only. The container still listens on 8000. MySQL has no published port.
 - Upload volume.
 - `.env.example` covers the library configuration table. `.env` is gitignored.
 - Do not mount `initial_admin.sql` or `apache_conf`.
