@@ -40,6 +40,22 @@ def get_table(table, attr = 'name'):
 
     return table_object
 
+
+def column_values(row, fields):
+    """Values for requested names that are columns of this row.
+
+    Names that are not columns are omitted, including relationships and
+    other attributes on the mapped instance.
+    """
+    if row is None or not fields:
+        return {}
+    columns = row.__table__.columns
+    values = {}
+    for field in fields:
+        if isinstance(field, str) and field in columns:
+            values[field] = str(getattr(row, field))
+    return values
+
 def get_func(module_name, func_name):
     """Return function from it's name.
     Returns None if unsuccessful.

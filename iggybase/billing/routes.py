@@ -139,14 +139,14 @@ def invoice_pdf(facility_name, year, month, org_name = None):
 def get_price(facility_name):
     criteria = request.json['criteria']
     fields = request.json['fields']
+    # A direct 404 skips the metadata error page, which 500s when that
+    # page's rows are missing.
+    if g_helper.get_role_access_control().has_access(
+            'TableObject', {'name': 'price_list'}) is None:
+        return json.dumps({}), 404
     oac = g_helper.get_org_access_control()
     row = oac.get_price(criteria)
-    price = None
-    ret = {}
-    if row:
-        for field in fields:
-            ret[field] = str(getattr(row, field))
-    return json.dumps(ret)
+    return json.dumps(util.column_values(row, fields))
 
 @billing.route( '/reports/' )
 @billing.route( '/reports/<int:year>/<int:month>/' )

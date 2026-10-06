@@ -1,5 +1,5 @@
 from flask import g, current_app, session
-from sqlalchemy import DateTime, func, cast, String, desc, or_, func, and_
+from sqlalchemy import DateTime, func, cast, String, desc, or_, func, and_, false
 from sqlalchemy.exc import IntegrityError, DataError, SQLAlchemyError, NoForeignKeysError, IdentifierError, \
     NoReferenceError
 from sqlalchemy.orm.exc import NoResultFound
@@ -525,7 +525,8 @@ class OrganizationAccessControl:
             result = self.session.query(*selects).join(*joins).filter(*criteria).order_by(*order_by).all()
         return result
 
-    def get_row(self, table_name, params, first = True, org_filter = False):
+    def get_row(self, table_name, params, first = True, org_filter = False,
+            org_ids = None):
         table_object = util.get_table(table_name)
 
         criteria = []
@@ -534,6 +535,14 @@ class OrganizationAccessControl:
             criteria.append(getattr(table_object, key) == value)
         if org_filter:
             criteria.append(getattr(table_object, 'organization_id') == self.current_org_id)
+        # org_ids is optional so other callers keep the unscoped read.
+        # An empty list must match nothing; IN () is not valid SQL.
+        if org_ids is not None:
+            org_column = getattr(table_object, 'organization_id')
+            if org_ids:
+                criteria.append(org_column.in_(tuple(org_ids)))
+            else:
+                criteria.append(false())
         if first:
             result = self.session.query(table_object).filter(*criteria).first()
         else:
@@ -554,13 +563,22 @@ class OrganizationAccessControl:
     def get_price(self, criteria):
         result = None
         org_row = self.get_row('organization', {'id': self.current_org_id})
-        org_type_id = getattr(org_row, 'organization_type_id')
+        org_type_id = None
+        if org_row is not None:
+            org_type_id = getattr(org_row, 'organization_type_id')
         if org_type_id:
             where = []
             table_object = util.get_table('price_list')
             where.append(getattr(table_object, 'price_item_id') == criteria['price_item_id'])
             where.append(getattr(table_object, 'organization_type_id') ==
                     org_type_id)
+            # Same organization rule as the ajax get_row path. An empty
+            # org_ids list must match nothing; IN () is not valid SQL.
+            org_column = getattr(table_object, 'organization_id')
+            if self.org_ids:
+                where.append(org_column.in_(tuple(self.org_ids)))
+            else:
+                where.append(false())
             result = self.session.query(table_object).filter(*where).first()
         return result
 

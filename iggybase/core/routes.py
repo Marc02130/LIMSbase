@@ -149,14 +149,14 @@ def new_workflow(facility_name, workflow_name):
 def get_row(facility_name, table_name):
     criteria = request.json['criteria']
     fields = request.json['fields']
+    # A direct 404 skips the metadata error page, which 500s when that
+    # page's rows are missing.
+    if g_helper.get_role_access_control().has_access(
+            'TableObject', {'name': table_name}) is None:
+        return json.dumps({}), 404
     oac = g_helper.get_org_access_control()
-    row = oac.get_row(table_name, criteria)
-    price = None
-    ret = {}
-    if row:
-        for field in fields:
-            ret[field] = str(getattr(row, field))
-    return json.dumps(ret)
+    row = oac.get_row(table_name, criteria, org_ids=oac.org_ids)
+    return json.dumps(util.column_values(row, fields))
 
 
 @core.route('/search', methods=['GET', 'POST'])
