@@ -34,6 +34,8 @@ def create_app():
     init_db( )
     from iggybase.home_page import ensure_stored_home
     ensure_stored_home()
+    from iggybase.user_summary import ensure_user_summary
+    ensure_user_summary()
 
     configure_blueprints(iggybase)
     security, user_datastore = configure_extensions( iggybase, db )
